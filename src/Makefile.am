@@ -1,4 +1,4 @@
-AM_CXXFLAGS = `llvm-config --cxxflags` -Werror -Wall
+AM_CXXFLAGS = `llvm-config --cxxflags` -Wall -fno-rtti
 
 noinst_LTLIBRARIES = libsat.la
 lib_LTLIBRARIES    = libintck.la libcmpck.la
@@ -31,6 +31,6 @@ libcmpck_la_SOURCES = CmpTautology.cc CmpOverflow.cc CmpSat.cc
 libcmpck_la_LIBADD  = libsat.la
 libcmpck_la_LDFLAGS = -module
 
-intglobal_LDFLAGS = `llvm-config --ldflags` -lLLVM-`llvm-config --version`
+intglobal_LDFLAGS = `llvm-config --ldflags` `llvm-config --libs`
 intglobal_SOURCES = IntGlobal.cc Annotation.cc CallGraph.cc Taint.cc Range.cc \
 	IntGlobal.h Annotation.h CRange.h
