@@ -1,3 +1,12 @@
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This pass finds calls to Overflow Intrinsics with a constant operand
+/// and simplifies it with bound checking on the other operand using Integer
+/// Comparison Instructions
+///
+//===----------------------------------------------------------------------===//
+
 #define DEBUG_TYPE "overflow-simplify"
 #include <llvm/Constants.h>
 #include <llvm/IRBuilder.h>

@@ -1,5 +1,10 @@
-// This pass recognizes overflow checking idioms and rewrites them
-// with overflow intrinsics.
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This pass recognizes common overflow checking idioms used in existing code
+/// and rewrites them with Overflow Intrinsics supported by LLVM releases >= 3.2
+///
+//===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "overflow-idiom"
 #include <llvm/Constants.h>

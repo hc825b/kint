@@ -1,3 +1,11 @@
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This pass inserts Overflow Intrinsics and a funtion call to int.sat at each
+/// possibly overflowing instruction.
+///
+//===----------------------------------------------------------------------===//
+
 #define DEBUG_TYPE "int-rewrite"
 #include <llvm/DataLayout.h>
 #include <llvm/IRBuilder.h>

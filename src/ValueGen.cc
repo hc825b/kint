@@ -31,6 +31,8 @@ struct ValueVisitor : InstVisitor<ValueVisitor, SMTExpr> {
 			return visit(I);
 		else if (Constant *C = dyn_cast<Constant>(V))
 			return visitConstant(C);
+		// XXX How BasicBlock as Value are handled?
+		// XXX What about other kinds of Value (InlineAsm, Operator)?
 		return mk_fresh(V);
 	}
 

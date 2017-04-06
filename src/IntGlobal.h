@@ -77,7 +77,7 @@ public:
 };
 
 struct GlobalContext {
-	// Map global function name to function defination
+	// Map global function name to function definition
 	FuncMap Funcs;
 
 	// Map function pointers (IDs) to possible assignments

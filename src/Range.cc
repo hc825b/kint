@@ -1,3 +1,13 @@
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This pass implements Value Range Analysis to compute possible value range of
+/// arguments and return value of each function.
+/// The analysis is a forward may analysis.
+/// The pass is inter-procedural and should be cross-module.
+///
+//===----------------------------------------------------------------------===//
+
 #define DEBUG_TYPE "ranges"
 #include <llvm/Pass.h>
 #include <llvm/Instructions.h>
@@ -174,7 +184,7 @@ void RangePass::collectInitializers(GlobalVariable *GV, Constant *I)
 // Handle integer assignments in global initializers
 //
 bool RangePass::doInitialization(Module *M)
-{	
+{
 	// Looking for global variables
 	for (Module::global_iterator i = M->global_begin(), 
 		 e = M->global_end(); i != e; ++i) {
@@ -328,6 +338,8 @@ bool RangePass::updateRangeFor(Instruction *I)
 	} else if (PHINode *PHI = dyn_cast<PHINode>(I)) {
 		CR = visitPHINode(PHI);
 	} else if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
+		// TODO getRange does not even track if 'load'
+		// instruction is loading the same location
 		CR = getRange(LI->getParent(), LI);
 	} else if (CallInst *CI = dyn_cast<CallInst>(I)) {
 		CR = getRange(CI->getParent(), CI);
@@ -418,8 +430,20 @@ void RangePass::visitTerminator(TerminatorInst *I, BasicBlock *BB,
 		visitBranchInst(BI, BB, VRM);
 	else if (SwitchInst *SI = dyn_cast<SwitchInst>(I))
 		visitSwitchInst(SI, BB, VRM);
+	else if (isa<ResumeInst>(I))
+		llvm_unreachable("'resume' shouldn't have any successor.");
+	else if (isa<UnreachableInst>(I))
+		; // Ignore unreachable instruction
 	else {
-		// ignore: I->dump(); llvm_unreachable("Unknown terminator!");
+		// XXX What about other kinds of terminator instructions? (LLVM 3.9)
+		//   indirectbr (IndirectBrInst)
+		//   ret (ReturnInst)
+		//   invoke (InvokeInst)
+		//   catchswitch (CatchSwitchInst)
+		//   catchret (CatchReturnInst)
+		//   cleanupret (CleanupReturnInst)
+		llvm::errs() << "Ignore:" << I->getOpcodeName() << '\n';
+		//ignore: I->dump(); llvm_unreachable("Unknown terminator!");
 	}
 }
 

@@ -1,3 +1,13 @@
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This executable reads in all provided LLVM IR files/modules and annotates
+/// functions predefined in AnnotationPass. It then performs Taint Analysis and
+/// Value Range Anlysis and writes the computed information back to provided
+/// LLVM IR files.
+///
+//===----------------------------------------------------------------------===//
+
 #include "llvm/LLVMContext.h"
 #include "llvm/PassManager.h"
 #include "llvm/Module.h"

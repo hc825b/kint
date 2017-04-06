@@ -1,3 +1,11 @@
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This pass checks the reachability of each int.sat call.
+/// The pass is intra-procedural.
+///
+//===----------------------------------------------------------------------===//
+
 #define DEBUG_TYPE "int-sat"
 #include "Diagnostic.h"
 #include "PathGen.h"
