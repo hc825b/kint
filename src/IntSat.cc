@@ -11,19 +11,19 @@
 #include "PathGen.h"
 #include "SMTSolver.h"
 #include "ValueGen.h"
-#include <llvm/BasicBlock.h>
-#include <llvm/Constants.h>
-#include <llvm/Instructions.h>
-#include <llvm/Function.h>
-#include <llvm/LLVMContext.h>
-#include <llvm/Module.h>
+#include <llvm/Analysis/CFG.h>
+#include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/Function.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
 #include <llvm/Pass.h>
-#include <llvm/Assembly/Writer.h>
-#include <llvm/ADT/OwningPtr.h>
+//#include <llvm/Assembly/Writer.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/CommandLine.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/InstIterator.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 
@@ -50,7 +50,7 @@ struct IntSat : ModulePass {
 private:
 	Diagnostic Diag;
 	Function *Trap;
-	OwningPtr<DataLayout> TD;
+	std::unique_ptr<DataLayout> TD;
 	unsigned MD_bug;
 
 	SmallVector<PathGen::Edge, 32> BackEdges;
@@ -100,7 +100,7 @@ void IntSat::check(CallInst *I) {
 		return;
 
 	const DebugLoc &DbgLoc = I->getDebugLoc();
-	if (DbgLoc.isUnknown())
+	if (!DbgLoc)
 		return;
 	if (!I->getMetadata(MD_bug))
 		return;
@@ -141,7 +141,7 @@ SMTStatus IntSat::query(Value *V, Instruction *I) {
 			if (isa<Constant>(KeyV))
 				continue;
 			OS << "  ";
-			WriteAsOperand(OS, KeyV, false, Trap->getParent());
+			KeyV->printAsOperand(OS, false, Trap->getParent());
 			OS << ": ";
 			APInt Val;
 			SMT.eval(Model, i->second, Val);

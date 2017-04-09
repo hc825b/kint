@@ -3,8 +3,8 @@
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
-#include <llvm/Support/CallSite.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/CallSite.h>
+#include <llvm/IR/InstIterator.h>
 #include <algorithm>
 #include "Diagnostic.h"
 
@@ -22,16 +22,16 @@ struct CmpOverflow : FunctionPass {
 	static char ID;
 	CmpOverflow() : FunctionPass(ID) {
 		PassRegistry &Registry = *PassRegistry::getPassRegistry();
-		initializeScalarEvolutionPass(Registry);
+		initializeScalarEvolutionWrapperPassPass(Registry);
 	}
 
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
 		AU.setPreservesAll();
-		AU.addRequired<ScalarEvolution>();
+		AU.addRequired<ScalarEvolutionWrapperPass>();
 	}
 
 	virtual bool runOnFunction(Function &F) {
-		SE = &getAnalysis<ScalarEvolution>();
+		SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 		inst_iterator i, e = inst_end(F);
 		for (i = inst_begin(F); i != e; ++i) {
 			CallSite CS(&*i);

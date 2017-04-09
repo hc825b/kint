@@ -7,22 +7,21 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "int-rewrite"
-#include <llvm/DataLayout.h>
 #include <llvm/IRBuilder.h>
-#include <llvm/Instructions.h>
-#include <llvm/Intrinsics.h>
-#include <llvm/LLVMContext.h>
-#include <llvm/Metadata.h>
-#include <llvm/Module.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/Intrinsics.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Metadata.h>
+#include <llvm/IR/Module.h>
 #include <llvm/Pass.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
-#include <llvm/Analysis/Dominators.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/ValueTracking.h>
 #include <llvm/Support/CommandLine.h>
-#include <llvm/Support/GetElementPtrTypeIterator.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/GetElementPtrTypeIterator.h>
+#include <llvm/IR/InstIterator.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 
 using namespace llvm;
@@ -36,13 +35,13 @@ struct IntRewrite : FunctionPass {
 	static char ID;
 	IntRewrite() : FunctionPass(ID) {
 		PassRegistry &Registry = *PassRegistry::getPassRegistry();
-		initializeDominatorTreePass(Registry);
-		initializeLoopInfoPass(Registry);
+		initializeDominatorTreeWrapperPassPass(Registry);
+		initializeLoopInfoWrapperPassPass(Registry);
 	}
 
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-		AU.addRequired<DominatorTree>();
-		AU.addRequired<LoopInfo>();
+		AU.addRequired<DominatorTreeWrapperPass>();
+		AU.addRequired<LoopInfoWrapperPass>();
 		AU.setPreservesCFG();
 	}
 
@@ -54,7 +53,6 @@ private:
 
 	DominatorTree *DT;
 	LoopInfo *LI;
-	DataLayout *TD;
 
 	bool insertOverflowCheck(Instruction *, Intrinsic::ID, Intrinsic::ID);
 	bool insertDivCheck(Instruction *);
@@ -67,7 +65,7 @@ private:
 } // anonymous namespace
 
 static MDNode * findSink(Value *V) {
-	for (Value::use_iterator i = V->use_begin(), e = V->use_end(); i != e; ++i) {
+	for (Value::user_iterator i = V->user_begin(), e = V->user_end(); i != e; ++i) {
 		if (Instruction *I = dyn_cast<Instruction>(*i)) {
 			if (MDNode *MD = I->getMetadata("sink"))
 				return MD;
@@ -116,9 +114,8 @@ void insertIntSat(Value *V, Instruction *I) {
 bool IntRewrite::runOnFunction(Function &F) {
 	BuilderTy TheBuilder(F.getContext());
 	Builder = &TheBuilder;
-	DT = &getAnalysis<DominatorTree>();
-	LI = &getAnalysis<LoopInfo>();
-	TD = getAnalysisIfAvailable<DataLayout>();
+	DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+	LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 	bool Changed = false;
 	for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
 		Instruction *I = &*i;
@@ -179,7 +176,7 @@ bool IntRewrite::isObservable(Value *V) {
 		return false;
 	}
 	// Default: observable if unsafe to speculately execute.
-	return !isSafeToSpeculativelyExecute(I, TD);
+	return !isSafeToSpeculativelyExecute(I, nullptr, DT);
 }
 
 bool IntRewrite::insertOverflowCheck(Instruction *I, Intrinsic::ID SID, Intrinsic::ID UID) {
@@ -193,7 +190,7 @@ bool IntRewrite::insertOverflowCheck(Instruction *I, Intrinsic::ID SID, Intrinsi
 	Intrinsic::ID ID = hasNSW ? SID : UID;
 	Module *M = I->getParent()->getParent()->getParent();
 	Function *F = Intrinsic::getDeclaration(M, ID, I->getType());
-	CallInst *CI = Builder->CreateCall2(F, L, R);
+	CallInst *CI = Builder->CreateCall(F, {L, R});
 	Value *V = Builder->CreateExtractValue(CI, 1);
 	// llvm.[s|u][add|sub|mul].with.overflow.*
 	StringRef Anno = F->getName().substr(5, 4);
@@ -220,7 +217,7 @@ bool IntRewrite::insertOverflowCheck(Instruction *I, Intrinsic::ID SID, Intrinsi
 	while (!Worklist.empty()) {
 		Value *E = Worklist.back();
 		Worklist.pop_back();
-		for (Value::use_iterator i = E->use_begin(), e = E->use_end(); i != e; ++i) {
+		for (Value::user_iterator i = E->user_begin(), e = E->user_end(); i != e; ++i) {
 			User *U = *i;
 			// Observable point.
 			if (isObservable(U)) {
@@ -242,7 +239,7 @@ bool IntRewrite::insertOverflowCheck(Instruction *I, Intrinsic::ID SID, Intrinsi
 			// Add to worklist if new.
 			if (U->use_empty())
 				continue;
-			if (Visited.insert(U))
+			if (Visited.insert(U).second)
 				Worklist.push_back(U);
 		}
 	}

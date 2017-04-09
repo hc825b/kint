@@ -1,7 +1,7 @@
 #pragma once
 
 #include <llvm/Support/Debug.h>
-#include <llvm/Support/ConstantRange.h>
+#include <llvm/IR/ConstantRange.h>
 
 // llvm::ConstantRange fixup.
 class CRange : public llvm::ConstantRange {
@@ -21,8 +21,8 @@ public:
 	static CRange makeEmptySet(uint32_t BitWidth) {
 		return CRange(BitWidth, false);
 	}
-	static CRange makeICmpRegion(unsigned Pred, const CRange &other) {
-		return super::makeICmpRegion(Pred, other);
+	static CRange makeAllowedICmpRegion(llvm::CmpInst::Predicate Pred, const CRange &other) {
+		return super::makeAllowedICmpRegion(Pred, other);
 	}
 
 	void match(const CRange &R) {

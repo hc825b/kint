@@ -7,16 +7,15 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "overflow-idiom"
-#include <llvm/Constants.h>
-#include <llvm/IRBuilder.h>
-#include <llvm/Instructions.h>
-#include <llvm/IntrinsicInst.h>
-#include <llvm/Module.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Module.h>
 #include <llvm/Pass.h>
-#include <llvm/ADT/OwningPtr.h>
 #include <llvm/Analysis/ValueTracking.h>
-#include <llvm/Support/InstIterator.h>
-#include <llvm/Support/PatternMatch.h>
+#include <llvm/IR/InstIterator.h>
+#include <llvm/IR/PatternMatch.h>
 #include <llvm/Transforms/Utils/Local.h>
 
 using namespace llvm;
@@ -41,7 +40,7 @@ private:
 	Value *createOverflowBit(Intrinsic::ID ID, Value *L, Value *R) {
 		Module *M = Builder->GetInsertBlock()->getParent()->getParent();
 		Function *F = Intrinsic::getDeclaration(M, ID, L->getType());
-		CallInst *CI = Builder->CreateCall2(F, L, R);
+		CallInst *CI = Builder->CreateCall(F, {L, R});
 		return Builder->CreateExtractValue(CI, 1);
 	}
 

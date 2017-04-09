@@ -1,9 +1,9 @@
 #define DEBUG_TYPE "cmp-tautology"
-#include <llvm/Instructions.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/Pass.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/InstIterator.h>
 #include <llvm/Support/raw_ostream.h>
 #include "Diagnostic.h"
 using namespace llvm;
@@ -18,16 +18,16 @@ struct CmpTautology : FunctionPass {
 	static char ID;
 	CmpTautology() : FunctionPass(ID) {
 		PassRegistry &Registry = *PassRegistry::getPassRegistry();
-		initializeScalarEvolutionPass(Registry);
+		initializeScalarEvolutionWrapperPassPass(Registry);
 	}
 
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
 		AU.setPreservesAll();
-		AU.addRequired<ScalarEvolution>();
+		AU.addRequired<ScalarEvolutionWrapperPass>();
 	}
 
 	virtual bool runOnFunction(Function &F) {
-		SE = &getAnalysis<ScalarEvolution>();
+		SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 		inst_iterator i = inst_begin(F), e = inst_end(F);
 		for (; i != e; ++i) {
 			if (ICmpInst *ICI = dyn_cast<ICmpInst>(&*i))

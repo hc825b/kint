@@ -7,5 +7,5 @@
 #define DataLayout TargetData
 #define initializeDataLayoutPass initializeTargetDataPass
 #else
-#include_next <llvm/DataLayout.h>
+#include <llvm/IR/DataLayout.h>
 #endif

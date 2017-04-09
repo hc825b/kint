@@ -1,10 +1,10 @@
 #pragma once
 
-#include <llvm/Module.h>
-#include <llvm/Type.h>
-#include <llvm/Instructions.h>
-#include <llvm/IntrinsicInst.h>
-#include <llvm/Metadata.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Type.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/Support/Path.h>
 #include <string>
 #include <llvm/Support/Debug.h>

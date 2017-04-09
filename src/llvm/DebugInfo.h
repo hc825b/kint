@@ -5,5 +5,5 @@
 #if LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR < 2
 #include <llvm/Analysis/DebugInfo.h>
 #else
-#include_next <llvm/DebugInfo.h>
+#include <llvm/IR/DebugInfo.h>
 #endif

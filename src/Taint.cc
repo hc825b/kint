@@ -1,13 +1,13 @@
 #include <llvm/DebugInfo.h>
-#include <llvm/Module.h>
+#include <llvm/IR/Module.h>
 #include <llvm/Pass.h>
-#include <llvm/Constants.h>
-#include <llvm/Instructions.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/Support/Debug.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/InstIterator.h>
 #include <llvm/Analysis/CallGraph.h>
 
 #include "Annotation.h"
@@ -138,7 +138,7 @@ bool TaintPass::runOnFunction(Function *F)
 }
 
 // write back
-bool TaintPass::doFinalization(Module *M) {
+bool TaintPass::doFinalization(std::unique_ptr<Module> &M) {
 	LLVMContext &VMCtx = M->getContext();
 	for (Module::iterator f = M->begin(), fe = M->end(); f != fe; ++f) {
 		Function *F = &*f;
@@ -154,7 +154,7 @@ bool TaintPass::doFinalization(Module *M) {
 	return true;
 }
 
-bool TaintPass::doModulePass(Module *M) {
+bool TaintPass::doModulePass(std::unique_ptr<Module> &M) {
 	bool changed = true, ret = false;
 
 	while (changed) {

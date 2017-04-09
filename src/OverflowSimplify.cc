@@ -8,15 +8,14 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "overflow-simplify"
-#include <llvm/Constants.h>
-#include <llvm/IRBuilder.h>
-#include <llvm/Instructions.h>
-#include <llvm/IntrinsicInst.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/Pass.h>
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/SmallString.h>
-#include <llvm/Assembly/Writer.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/InstIterator.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 
@@ -105,11 +104,11 @@ static bool canonicalize(IntrinsicInst *I, Value **X, ConstantInt **C) {
 	SmallString<16> LS, RS;
 	{
 		raw_svector_ostream OS(LS);
-		WriteAsOperand(OS, L, false);
+		L->printAsOperand(OS, false);
 	}
 	{
 		raw_svector_ostream OS(RS);
-		WriteAsOperand(OS, R, false);
+		R->printAsOperand(OS, false);
 	}
 	if (LS <= RS)
 		return false;

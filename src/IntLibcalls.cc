@@ -1,9 +1,9 @@
 #define DEBUG_TYPE "int-libcalls"
-#include <llvm/IRBuilder.h>
-#include <llvm/Instructions.h>
-#include <llvm/Module.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/Module.h>
 #include <llvm/Pass.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/InstIterator.h>
 
 using namespace llvm;
 
@@ -67,7 +67,7 @@ bool IntLibcalls::runOnModule(Module &M) {
 	BuilderTy TheBuilder(M.getContext());
 	Builder = &TheBuilder;
 	for (Module::iterator i = M.begin(), e = M.end(); i != e; ++i) {
-		Function *F = i;
+		Function *F = &*i;
 		if (F->empty())
 			continue;
 		rewriteSize(F);

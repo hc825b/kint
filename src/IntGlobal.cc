@@ -8,18 +8,20 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "llvm/LLVMContext.h"
-#include "llvm/PassManager.h"
-#include "llvm/Module.h"
-#include "llvm/Analysis/Verifier.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/SystemUtils.h"
-#include "llvm/Support/IRReader.h"
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Signals.h"
+#include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/Path.h"
 #include <memory>
 #include <vector>
@@ -44,13 +46,13 @@ GlobalContext GlobalCtx;
 
 #define Diag if (Verbose) llvm::errs()
 
-void doWriteback(Module *M, StringRef name)
+void doWriteback(std::unique_ptr<Module>& M, StringRef name)
 {
-	std::string err;
-	OwningPtr<tool_output_file> out(
-		new tool_output_file(name.data(), err, raw_fd_ostream::F_Binary));
-	if (!err.empty()) {
-		Diag << "Cannot write back to " << name << ": " << err << "\n";
+	std::error_code err;
+	std::unique_ptr<tool_output_file> out(
+		new tool_output_file(name.data(), err, sys::fs::F_None));
+	if (err) {
+		Diag << "Cannot write back to " << name << ": " << err.message() << "\n";
 		return;
 	}
 	M->print(out->os(), NULL);
@@ -100,7 +102,7 @@ void IterativeModulePass::run(ModuleList &modules) {
 int main(int argc, char **argv)
 {
 	// Print a stack trace if we signal out.
-	sys::PrintStackTraceOnErrorSignal();
+	sys::PrintStackTraceOnErrorSignal(argv[0]);
 	PrettyStackTraceProgram X(argc, argv);
 
 	llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
@@ -113,7 +115,7 @@ int main(int argc, char **argv)
 	for (unsigned i = 0; i < InputFilenames.size(); ++i) {
 		// use separate LLVMContext to avoid type renaming
 		LLVMContext *LLVMCtx = new LLVMContext();
-		Module *M = ParseIRFile(InputFilenames[i], Err, *LLVMCtx);
+		std::unique_ptr<Module> M = parseIRFile(InputFilenames[i], Err, *LLVMCtx);
 
 		if (M == NULL) {
 			errs() << argv[0] << ": error loading file '" 
@@ -131,7 +133,7 @@ int main(int argc, char **argv)
 		if (!NoWriteback)
 			doWriteback(M, InputFilenames[i].c_str());
 
-		Modules.push_back(std::make_pair(M, InputFilenames[i]));
+		Modules.push_back(std::make_pair(std::move(M), InputFilenames[i]));
 	}
 
 	// Main workflow

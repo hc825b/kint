@@ -1,10 +1,10 @@
 #include <llvm/DebugInfo.h>
 #include <llvm/Pass.h>
-#include <llvm/Instructions.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/Support/Debug.h>
-#include <llvm/Support/InstIterator.h>
-#include <llvm/Module.h>
-#include <llvm/Constants.h>
+#include <llvm/IR/InstIterator.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/Analysis/CallGraph.h>
 
@@ -15,7 +15,7 @@ using namespace llvm;
 
 // collect function pointer assignments in global initializers
 void
-CallGraphPass::processInitializers(Module *M, Constant *I, GlobalValue *V) {
+CallGraphPass::processInitializers(std::unique_ptr<Module> &M, Constant *I, GlobalValue *V) {
 	// structs
 	if (ConstantStruct *CS = dyn_cast<ConstantStruct>(I)) {
 		StructType *STy = CS->getType();
@@ -29,7 +29,7 @@ CallGraphPass::processInitializers(Module *M, Constant *I, GlobalValue *V) {
 			} else if (isFunctionPointer(ETy)) {
 				// found function pointers in struct fields
 				if (Function *F = dyn_cast<Function>(CS->getOperand(i))) {
-					std::string Id = getStructId(STy, M, i);
+					std::string Id = getStructId(STy, &*M, i); // FIXME Broken unique_ptr M
 					Ctx->FuncPtrs[Id].insert(F);
 				}
 			}
@@ -58,7 +58,7 @@ bool CallGraphPass::mergeFuncSet(FuncSet &S, const std::string &Id) {
 bool CallGraphPass::mergeFuncSet(FuncSet &Dst, const FuncSet &Src) {
 	bool Changed = false;
 	for (FuncSet::const_iterator i = Src.begin(), e = Src.end(); i != e; ++i)
-		Changed |= Dst.insert(*i);
+		Changed |= Dst.insert(*i).second;
 	return Changed;
 }
 
@@ -70,20 +70,20 @@ bool CallGraphPass::findFunctions(Value *V, FuncSet &S) {
 
 bool CallGraphPass::findFunctions(Value *V, FuncSet &S, 
                                   SmallPtrSet<Value *, 4> Visited) {
-	if (!Visited.insert(V))
+	if (!Visited.insert(V).second)
 		return false;
 
 	// real function, S = S + {F}
 	if (Function *F = dyn_cast<Function>(V)) {
 		if (!F->empty())
-			return S.insert(F);
+			return S.insert(F).second;
 
 		// prefer the real definition to declarations
 		FuncMap::iterator it = Ctx->Funcs.find(F->getName());
 		if (it != Ctx->Funcs.end())
-			return S.insert(it->second);
+			return S.insert(it->second).second;
 		else
-			return S.insert(F);
+			return S.insert(F).second;
 	}
 
 	// bitcast, ignore the cast
@@ -193,7 +193,7 @@ bool CallGraphPass::runOnFunction(Function *F) {
 	return Changed;
 }
 
-bool CallGraphPass::doInitialization(Module *M) {
+bool CallGraphPass::doInitialization(std::unique_ptr<Module>& M) {
 	// collect function pointer assignments in global initializers
 	Module::global_iterator i, e;
 	for (i = M->global_begin(), e = M->global_end(); i != e; ++i) {
@@ -210,7 +210,7 @@ bool CallGraphPass::doInitialization(Module *M) {
 	return true;
 }
 
-bool CallGraphPass::doFinalization(Module *M) {
+bool CallGraphPass::doFinalization(std::unique_ptr<Module>& M) {
 	// update callee mapping
 	for (Module::iterator f = M->begin(), fe = M->end(); f != fe; ++f) {
 		Function *F = &*f;
@@ -225,7 +225,7 @@ bool CallGraphPass::doFinalization(Module *M) {
 	return false;
 }
 
-bool CallGraphPass::doModulePass(Module *M) {
+bool CallGraphPass::doModulePass(std::unique_ptr<Module>& M) {
 	bool Changed = true, ret = false;
 	while (Changed) {
 		Changed = false;

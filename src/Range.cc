@@ -10,18 +10,18 @@
 
 #define DEBUG_TYPE "ranges"
 #include <llvm/Pass.h>
-#include <llvm/Instructions.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/Support/Debug.h>
-#include <llvm/Support/InstIterator.h>
-#include <llvm/Module.h>
-#include <llvm/Constants.h>
-#include <llvm/ADT/OwningPtr.h>
+#include <llvm/IR/InstIterator.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/DebugInfo.h>
 #include <llvm/Analysis/CallGraph.h>
+#include <llvm/Analysis/CFG.h>
 #include <llvm/Analysis/LoopInfo.h>
-#include <llvm/Analysis/ScalarEvolution.h>
-#include <llvm/Analysis/ScalarEvolutionExpressions.h>
+//#include <llvm/Analysis/ScalarEvolution.h>
+//#include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include "llvm/Support/CommandLine.h"
 
@@ -183,7 +183,7 @@ void RangePass::collectInitializers(GlobalVariable *GV, Constant *I)
 //
 // Handle integer assignments in global initializers
 //
-bool RangePass::doInitialization(Module *M)
+bool RangePass::doInitialization(std::unique_ptr<Module> &M)
 {
 	// Looking for global variables
 	for (Module::global_iterator i = M->global_begin(), 
@@ -376,9 +376,9 @@ void RangePass::visitBranchInst(BranchInst *BI, BasicBlock *BB,
 
 	if (BI->getSuccessor(0) == BB) {
 		// true target
-		CRange PLCR = CRange::makeICmpRegion(
+		CRange PLCR = CRange::makeAllowedICmpRegion(
 									ICI->getSwappedPredicate(), LCR);
-		CRange PRCR = CRange::makeICmpRegion(
+		CRange PRCR = CRange::makeAllowedICmpRegion(
 									ICI->getPredicate(), RCR);
 		VRM.insert(std::make_pair(LHS, LCR.intersectWith(PRCR)));
 		VRM.insert(std::make_pair(RHS, LCR.intersectWith(PLCR)));
@@ -386,10 +386,10 @@ void RangePass::visitBranchInst(BranchInst *BI, BasicBlock *BB,
 		// false target, use inverse predicate
 		// N.B. why there's no getSwappedInversePredicate()...
 		ICI->swapOperands();
-		CRange PLCR = CRange::makeICmpRegion(
+		CRange PLCR = CRange::makeAllowedICmpRegion(
 									ICI->getInversePredicate(), RCR);
 		ICI->swapOperands();
-		CRange PRCR = CRange::makeICmpRegion(
+		CRange PRCR = CRange::makeAllowedICmpRegion(
 									ICI->getInversePredicate(), RCR);
 		VRM.insert(std::make_pair(LHS, LCR.intersectWith(PRCR)));
 		VRM.insert(std::make_pair(RHS, LCR.intersectWith(PLCR)));
@@ -502,7 +502,7 @@ bool RangePass::updateRangeFor(Function *F)
 	return changed;
 }
 
-bool RangePass::doModulePass(Module *M)
+bool RangePass::doModulePass(std::unique_ptr<Module> &M)
 {
 	unsigned itr = 0;
 	bool changed = true, ret = false;
@@ -527,7 +527,7 @@ bool RangePass::doModulePass(Module *M)
 }
 
 // write back
-bool RangePass::doFinalization(Module *M) {
+bool RangePass::doFinalization(std::unique_ptr<Module> &M) {
 	LLVMContext &VMCtx = M->getContext();
 	for (Module::iterator f = M->begin(), fe = M->end(); f != fe; ++f) {
 		Function *F = &*f;
@@ -549,7 +549,7 @@ bool RangePass::doFinalization(Module *M) {
 
 			ConstantInt *Lo = ConstantInt::get(VMCtx, R.getLower());
 			ConstantInt *Hi = ConstantInt::get(VMCtx, R.getUpper());
-			Value *RL[] = { Lo, Hi };
+			ArrayRef<Metadata*> RL = { ValueAsMetadata::get(Lo), ValueAsMetadata::get(Hi) };
 			MDNode *MD = MDNode::get(VMCtx, RL);
 			I->setMetadata("intrange", MD);
 		}

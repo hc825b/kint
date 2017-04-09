@@ -1,9 +1,9 @@
 #define DEBUG_TYPE "cmp-sat"
+#include <llvm/Analysis/CFG.h>
 #include <llvm/DataLayout.h>
-#include <llvm/Instructions.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/Pass.h>
-#include <llvm/ADT/OwningPtr.h>
-#include <llvm/Analysis/Dominators.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include "Diagnostic.h"
@@ -22,19 +22,17 @@ struct CmpSat : FunctionPass {
 	static char ID;
 	CmpSat() : FunctionPass(ID) {
 		PassRegistry &Registry = *PassRegistry::getPassRegistry();
-		initializeDataLayoutPass(Registry);
-		initializeDominatorTreePass(Registry);
+		initializeDominatorTreeWrapperPassPass(Registry);
 	}
 
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-		AU.addRequired<DataLayout>();
-		AU.addRequired<DominatorTree>();
+		AU.addRequired<DominatorTreeWrapperPass>();
 		AU.setPreservesAll();
 	}
 
 	virtual bool runOnFunction(Function &F) {
-		DL = &getAnalysis<DataLayout>();
-		DT = &getAnalysis<DominatorTree>();
+		DL = &F.getParent()->getDataLayout();
+		DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 		FindFunctionBackedges(F, Backedges);
 		for (Function::iterator i = F.begin(), e = F.end(); i != e; ++i) {
 			BranchInst *BI = dyn_cast<BranchInst>(i->getTerminator());
@@ -48,7 +46,7 @@ struct CmpSat : FunctionPass {
 
 private:
 	Diagnostic Diag;
-	DataLayout *DL;
+	const DataLayout *DL;
 	DominatorTree *DT;
 	SmallVector<PathGen::Edge, 32> Backedges;
 

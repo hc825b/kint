@@ -1,11 +1,11 @@
-#include <llvm/Module.h>
-#include <llvm/Instructions.h>
-#include <llvm/IntrinsicInst.h>
-#include <llvm/Metadata.h>
-#include <llvm/Constants.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Metadata.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/Pass.h>
 #include <llvm/Analysis/ValueTracking.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/InstIterator.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
@@ -101,7 +101,7 @@ static bool annotateArguments(Function &F) {
 		Function *AF = cast<Function>(
 			F.getParent()->getOrInsertFunction(Name, Ty, NULL));
 		CallInst *CI = IntrinsicInst::Create(AF, A->getName(), 
-			F.getEntryBlock().getFirstInsertionPt());
+			&*F.getEntryBlock().getFirstInsertionPt());
 
 		MDNode *MD = MDNode::get(VMCtx, MDString::get(VMCtx, getArgId(A)));
 		CI->setMetadata(MD_ID, MD);

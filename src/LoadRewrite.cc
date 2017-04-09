@@ -1,13 +1,14 @@
 #define DEBUG_TYPE "load-rewrite"
-#include <llvm/IRBuilder.h>
-#include <llvm/Instructions.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/Pass.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Transforms/Utils/SSAUpdater.h>
-#include <llvm/Support/InstIterator.h>
+#include <llvm/IR/InstIterator.h>
 
+using std::tie;
 using namespace llvm;
 
 namespace {
@@ -16,12 +17,12 @@ struct LoadRewrite : FunctionPass {
 	static char ID;
 	LoadRewrite() : FunctionPass(ID) {
 		PassRegistry &Registry = *PassRegistry::getPassRegistry();
-		initializeScalarEvolutionPass(Registry);
+		initializeScalarEvolutionWrapperPassPass(Registry);
 	}
 
 	virtual void getAnalysisUsage(AnalysisUsage &AU) const {
 		AU.setPreservesCFG();
-		AU.addRequired<ScalarEvolution>();
+		AU.addRequired<ScalarEvolutionWrapperPass>();
 	}
 
 	virtual bool runOnFunction(Function &);
@@ -35,7 +36,7 @@ private:
 } // anonymous namespace
 
 bool LoadRewrite::runOnFunction(Function &F) {
-	SE = &getAnalysis<ScalarEvolution>();
+	SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 	bool Changed = false;
 	for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
 		LoadInst *I = dyn_cast<LoadInst>(&*i);
@@ -86,12 +87,12 @@ bool LoadRewrite::hoist(LoadInst *I) {
 	// 2) in the entry block, if Base is an argument or a global variable.
 	Instruction *IP;
 	if (Instruction *BaseI = dyn_cast<Instruction>(BaseV))
-		IP = ++BasicBlock::iterator(BaseI);
+		IP = &*(++BasicBlock::iterator(BaseI));
 	else
-		IP = F->getEntryBlock().begin();
+		IP = &*(F->getEntryBlock().begin());
 	// Skip phi nodes, if any.
 	if (isa<PHINode>(IP))
-		IP = IP->getParent()->getFirstInsertionPt();
+		IP = &*(IP->getParent()->getFirstInsertionPt());
 	IRBuilder<> Builder(IP);
 	Value *AddrV = BaseV;
 	// Offset is based on the type of char *.
@@ -109,10 +110,10 @@ bool LoadRewrite::hoist(LoadInst *I) {
 	LoadInst *LoadV = Builder.CreateLoad(AddrV, true);
 	// Update all loads with the new inserted one.
 	for (Function::iterator bi = F->begin(), be = F->end(); bi != be; ++bi) {
-		BasicBlock *BB = bi;
+		BasicBlock *BB = &*bi;
 		Value *V = NULL;
 		for (BasicBlock::iterator i = BB->begin(), e = BB->end(); i != e; ++i) {
-			Instruction *I = i;
+			Instruction *I = &*i;
 			if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
 				Value *StoreV = SI->getValueOperand();
 				if (StoreV->getType() != T)
@@ -151,7 +152,7 @@ bool LoadRewrite::hoist(LoadInst *I) {
 		if (S != SE->getSCEV(LI->getPointerOperand()))
 			continue;
 		for (Value::use_iterator ui = LI->use_begin(), ue = LI->use_end(); ui != ue; ) {
-			Use &U = ui.getUse();
+			Use &U = *ui;
 			ui++;
 			SSA.RewriteUse(U);
 		}

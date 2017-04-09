@@ -1,11 +1,10 @@
 #include "ValueGen.h"
-#include <llvm/Constants.h>
-#include <llvm/InstVisitor.h>
-#include <llvm/IntrinsicInst.h>
-#include <llvm/Operator.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/InstVisitor.h>
+#include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Operator.h>
 #include <llvm/ADT/APInt.h>
-#include <llvm/Assembly/Writer.h>
-#include <llvm/Support/GetElementPtrTypeIterator.h>
+#include <llvm/IR/GetElementPtrTypeIterator.h>
 #include <llvm/Support/raw_ostream.h>
 #include <assert.h>
 
@@ -271,7 +270,7 @@ private:
 		std::string Name;
 		{
 			raw_string_ostream OS(Name);
-			WriteAsOperand(OS, V, false);
+			V->printAsOperand(OS, false);
 			// Make name unique, e.g., undef.
 			OS << "@" << V;
 		}
@@ -285,7 +284,7 @@ private:
 
 } // anonymous namespace
 
-ValueGen::ValueGen(DataLayout &TD, SMTSolver &SMT)
+ValueGen::ValueGen(const DataLayout &TD, SMTSolver &SMT)
 	: TD(TD), SMT(SMT) {}
 
 ValueGen::~ValueGen() {
@@ -321,8 +320,8 @@ void addRangeConstraints(SMTSolver &SMT, SMTExpr E, MDNode *MD) {
 	unsigned n = MD->getNumOperands();
 	assert(n % 2 == 0);
 	for (unsigned i = 0; i != n; i += 2) {
-		const APInt &Lo = cast<ConstantInt>(MD->getOperand(i))->getValue();
-		const APInt &Hi = cast<ConstantInt>(MD->getOperand(i + 1))->getValue();
+		const APInt &Lo = cast<ConstantInt>(cast<ConstantAsMetadata>(MD->getOperand(i).get())->getValue())->getValue();
+		const APInt &Hi = cast<ConstantInt>(cast<ConstantAsMetadata>(MD->getOperand(i + 1).get())->getValue())->getValue();
 		// Ignore empty or full set.
 		if (Lo == Hi)
 			continue;

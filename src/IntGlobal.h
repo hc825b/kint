@@ -1,24 +1,23 @@
 #pragma once
 
 #include <llvm/DebugInfo.h>
-#include <llvm/Module.h>
-#include <llvm/Instructions.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/StringExtras.h>
-#include <llvm/Support/ConstantRange.h>
 #include <llvm/Support/Path.h>
 #include <llvm/Support/raw_ostream.h>
 #include <map>
 #include <set>
-#include <iostream>
-#include <fstream>
-#include <sstream>
+//#include <iostream>
+//#include <fstream>
+//#include <sstream>
 #include <string>
 
 #include "CRange.h"
 
-typedef std::vector< std::pair<llvm::Module *, llvm::StringRef> > ModuleList;
+typedef std::vector<std::pair<std::unique_ptr<llvm::Module>, llvm::StringRef> > ModuleList;
 typedef llvm::SmallPtrSet<llvm::Function *, 8> FuncSet;
 typedef std::map<llvm::StringRef, llvm::Function *> FuncMap;
 typedef std::map<std::string, FuncSet> FuncPtrMap;
@@ -102,15 +101,15 @@ public:
 		: Ctx(Ctx_), ID(ID_) { }
 	
 	// run on each module before iterative pass
-	virtual bool doInitialization(llvm::Module *M)
+	virtual bool doInitialization(std::unique_ptr<llvm::Module>& M)
 		{ return true; }
 
 	// run on each module after iterative pass
-	virtual bool doFinalization(llvm::Module *M)
+	virtual bool doFinalization(std::unique_ptr<llvm::Module>& M)
 		{ return true; }
 
 	// iterative pass
-	virtual bool doModulePass(llvm::Module *M)
+	virtual bool doModulePass(std::unique_ptr<llvm::Module>& M)
 		{ return false; }
 
 	virtual void run(ModuleList &modules);
@@ -119,7 +118,7 @@ public:
 class CallGraphPass : public IterativeModulePass {
 private:
 	bool runOnFunction(llvm::Function *);
-	void processInitializers(llvm::Module *, llvm::Constant *, llvm::GlobalValue *);
+	void processInitializers(std::unique_ptr<llvm::Module> &, llvm::Constant *, llvm::GlobalValue *);
 	bool mergeFuncSet(FuncSet &S, const std::string &Id);
 	bool mergeFuncSet(FuncSet &Dst, const FuncSet &Src);
 	bool findFunctions(llvm::Value *, FuncSet &);
@@ -130,9 +129,9 @@ private:
 public:
 	CallGraphPass(GlobalContext *Ctx_)
 		: IterativeModulePass(Ctx_, "CallGraph") { }
-	virtual bool doInitialization(llvm::Module *);
-	virtual bool doFinalization(llvm::Module *);
-	virtual bool doModulePass(llvm::Module *);
+	virtual bool doInitialization(std::unique_ptr<llvm::Module>& );
+	virtual bool doFinalization(std::unique_ptr<llvm::Module>& );
+	virtual bool doModulePass(std::unique_ptr<llvm::Module>& );
 
 	// debug
 	void dumpFuncPtrs();
@@ -155,8 +154,8 @@ private:
 public:
 	TaintPass(GlobalContext *Ctx_)
 		: IterativeModulePass(Ctx_, "Taint") { }
-	virtual bool doModulePass(llvm::Module *);
-	virtual bool doFinalization(llvm::Module *);
+	virtual bool doModulePass(std::unique_ptr<llvm::Module>& );
+	virtual bool doFinalization(std::unique_ptr<llvm::Module>& );
 	bool isTaintSource(const std::string &sID);
 
 	// debug
@@ -212,9 +211,9 @@ public:
 	RangePass(GlobalContext *Ctx_)
 		: IterativeModulePass(Ctx_, "Range"), MaxIterations(5) { }
 	
-	virtual bool doInitialization(llvm::Module *);
-	virtual bool doModulePass(llvm::Module *M);
-	virtual bool doFinalization(llvm::Module *);
+	virtual bool doInitialization(std::unique_ptr<llvm::Module>& );
+	virtual bool doModulePass(std::unique_ptr<llvm::Module>& );
+	virtual bool doFinalization(std::unique_ptr<llvm::Module>& );
 
 	// debug
 	void dumpRange();
