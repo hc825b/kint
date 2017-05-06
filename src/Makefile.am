@@ -1,4 +1,4 @@
-AM_CXXFLAGS = `llvm-config --cxxflags` -I/class/cs526/sp17-projects/llvm/llvm-3.9.1.src/include -Wall -fno-rtti
+AM_CXXFLAGS = `llvm-config --cxxflags` -Wall -fno-rtti
 
 noinst_LTLIBRARIES = libsat.la
 lib_LTLIBRARIES    = libintck.la libcmpck.la
