@@ -222,7 +222,6 @@ bool AnnotationPass::runOnFunction(Function &F) {
 
 bool AnnotationPass::doInitialization(Module &M)
 {
-	this->M = &M;
 	return true;
 }
 

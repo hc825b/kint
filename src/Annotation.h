@@ -15,8 +15,6 @@
 #define MD_ID         "id"
 
 class AnnotationPass : public llvm::FunctionPass {
-protected:
-	llvm::Module *M;
 public:
 	static char ID;
 	AnnotationPass() : FunctionPass(ID) { }
