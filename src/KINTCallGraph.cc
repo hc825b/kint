@@ -16,49 +16,7 @@
 
 using namespace llvm;
 
-bool KINTCallGraphPass::doInitialization(Module& M) {
-	// collect function pointer assignments in global initializers
-	Module::global_iterator i, e;
-	for (i = M.global_begin(), e = M.global_end(); i != e; ++i) {
-		if (i->hasInitializer())
-			processInitializers(M, i->getInitializer(), &*i);
-	}
-
-	// collect global function definitions
-	for (Module::iterator f = M.begin(), fe = M.end(); f != fe; ++f) {
-		if (f->hasExternalLinkage() && !f->empty())
-		{
-			this->Funcs[f->getName()] = &*f;
-		}
-	}
-	// TODO Test if initialization is done correctly
-	return true;
-}
-
-bool KINTCallGraphPass::doFinalization(Module& M) {
-	// update callee mapping
-	for (Module::iterator f = M.begin(), fe = M.end(); f != fe; ++f) {
-		Function &F = *f;
-		for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
-			// map callsite to possible callees
-			if (CallInst *CI = dyn_cast<CallInst>(&*i)) {
-				FuncSet &FS = this->Callees[CI];
-				findFunctions(CI->getCalledValue(), FS);
-			}
-		}
-	}
-	// TODO Test if finalization is done correctly
-	return true;
-}
-
-bool KINTCallGraphPass::runOnModule(Module& M) {
-	Callees.clear();
-
-	for (Module::iterator i = M.begin(), e = M.end(); i != e; ++i)
-		runOnFunction(*i);
-	return false;
-}
-
+// collect function pointer assignments in global initializers
 void KINTCallGraphPass::processInitializers(Module &M, Constant *I, GlobalValue *V) {
 	// structs
 	if (ConstantStruct *CS = dyn_cast<ConstantStruct>(I)) {
@@ -92,63 +50,6 @@ void KINTCallGraphPass::processInitializers(Module &M, Constant *I, GlobalValue 
 	}
 }
 
-bool KINTCallGraphPass::runOnFunction(Function &F)
-{
-	bool Changed = false;
-	for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
-
-		Instruction *I = &*i;
-
-		if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
-			// stores to function pointers
-			Value *V = SI->getValueOperand();
-			if (isFunctionPointer(V->getType())) {
-				StringRef Id = getLoadStoreId(SI);
-				if (!Id.empty())
-					Changed |= findFunctions(V, this->FuncPtrs[Id]);
-			}
-		} else if (ReturnInst *RI = dyn_cast<ReturnInst>(I)) {
-			// function returns
-			if (isFunctionPointer(F.getReturnType())) {
-				Value *V = RI->getReturnValue();
-				std::string Id = getRetId(&F);
-				Changed |= findFunctions(V, this->FuncPtrs[Id]);
-			}
-		} else if (CallInst *CI = dyn_cast<CallInst>(I)) {
-			// ignore inline asm or intrinsic calls
-			if (CI->isInlineAsm() || (CI->getCalledFunction()
-					&& CI->getCalledFunction()->isIntrinsic()))
-				continue;
-
-			// might be an indirect call, find all possible callees
-			FuncSet FS;
-			if (!findFunctions(CI->getCalledValue(), FS))
-				continue;
-
-			// looking for function pointer arguments
-			for (unsigned no = 0; no != CI->getNumArgOperands(); ++no) {
-				Value *V = CI->getArgOperand(no);
-				if (!isFunctionPointer(V->getType()))
-					continue;
-
-				// find all possible assignments to the argument
-				FuncSet VS;
-				if (!findFunctions(V, VS))
-					continue;
-
-				// update argument FP-set for possible callees
-				for (FuncSet::iterator k = FS.begin(), ke = FS.end();
-				        k != ke; ++k) {
-					llvm::Function *CF = *k;
-					std::string Id = getArgId(CF, no);
-					Changed |= mergeFuncSet(this->FuncPtrs[Id], VS);
-				}
-			}
-		}
-	}
-	return Changed;
-}
-
 bool KINTCallGraphPass::mergeFuncSet(FuncSet &S, const std::string &Id) {
 	FuncPtrMap::iterator i = this->FuncPtrs.find(Id);
 	if (i != this->FuncPtrs.end())
@@ -163,13 +64,12 @@ bool KINTCallGraphPass::mergeFuncSet(FuncSet &Dst, const FuncSet &Src) {
 	return Changed;
 }
 
-
 bool KINTCallGraphPass::findFunctions(Value *V, FuncSet &S) {
 	SmallPtrSet<Value *, 4> Visited;
 	return findFunctions(V, S, Visited);
 }
 
-bool KINTCallGraphPass::findFunctions(Value *V, FuncSet &S,
+bool KINTCallGraphPass::findFunctions(Value *V, FuncSet &S, 
                                   SmallPtrSet<Value *, 4> Visited) {
 	if (!Visited.insert(V).second)
 		return false;
@@ -236,6 +136,103 @@ bool KINTCallGraphPass::findFunctions(Value *V, FuncSet &S,
 
 	V->dump();
 	report_fatal_error("findFunctions: unhandled value type\n");
+	return false;
+}
+
+bool KINTCallGraphPass::runOnFunction(Function &F) {
+	bool Changed = false;
+	for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
+
+		Instruction *I = &*i;
+
+		if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
+			// stores to function pointers
+			Value *V = SI->getValueOperand();
+			if (isFunctionPointer(V->getType())) {
+				StringRef Id = getLoadStoreId(SI);
+				if (!Id.empty())
+					Changed |= findFunctions(V, this->FuncPtrs[Id]);
+			}
+		} else if (ReturnInst *RI = dyn_cast<ReturnInst>(I)) {
+			// function returns
+			if (isFunctionPointer(F.getReturnType())) {
+				Value *V = RI->getReturnValue();
+				std::string Id = getRetId(&F);
+				Changed |= findFunctions(V, this->FuncPtrs[Id]);
+			}
+		} else if (CallInst *CI = dyn_cast<CallInst>(I)) {
+			// ignore inline asm or intrinsic calls
+			if (CI->isInlineAsm() || (CI->getCalledFunction()
+					&& CI->getCalledFunction()->isIntrinsic()))
+				continue;
+
+			// might be an indirect call, find all possible callees
+			FuncSet FS;
+			if (!findFunctions(CI->getCalledValue(), FS))
+				continue;
+
+			// looking for function pointer arguments
+			for (unsigned no = 0; no != CI->getNumArgOperands(); ++no) {
+				Value *V = CI->getArgOperand(no);
+				if (!isFunctionPointer(V->getType()))
+					continue;
+
+				// find all possible assignments to the argument
+				FuncSet VS;
+				if (!findFunctions(V, VS))
+					continue;
+
+				// update argument FP-set for possible callees
+				for (FuncSet::iterator k = FS.begin(), ke = FS.end();
+				        k != ke; ++k) {
+					llvm::Function *CF = *k;
+					std::string Id = getArgId(CF, no);
+					Changed |= mergeFuncSet(this->FuncPtrs[Id], VS);
+				}
+			}
+		}
+	}
+	return Changed;
+}
+
+bool KINTCallGraphPass::doInitialization(Module& M) {
+	// collect function pointer assignments in global initializers
+	Module::global_iterator i, e;
+	for (i = M.global_begin(), e = M.global_end(); i != e; ++i) {
+		if (i->hasInitializer())
+			processInitializers(M, i->getInitializer(), &*i);
+	}
+
+	// collect global function definitions
+	for (Module::iterator f = M.begin(), fe = M.end(); f != fe; ++f) {
+		if (f->hasExternalLinkage() && !f->empty())
+			this->Funcs[f->getName()] = &*f;
+	}
+	// TODO Test if initialization is done correctly
+	return true;
+}
+
+bool KINTCallGraphPass::doFinalization(Module& M) {
+	// update callee mapping
+	for (Module::iterator f = M.begin(), fe = M.end(); f != fe; ++f) {
+		Function &F = *f;
+		for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
+			// map callsite to possible callees
+			if (CallInst *CI = dyn_cast<CallInst>(&*i)) {
+				FuncSet &FS = this->Callees[CI];
+				findFunctions(CI->getCalledValue(), FS);
+			}
+		}
+	}
+	// TODO Test if finalization is done correctly
+	return true;
+}
+
+bool KINTCallGraphPass::runOnModule(Module& M) {
+	Callees.clear();
+
+	for (Module::iterator i = M.begin(), e = M.end(); i != e; ++i)
+		runOnFunction(*i);
 	return false;
 }
 

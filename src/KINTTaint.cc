@@ -31,40 +31,8 @@ static inline MDString *toMDString(LLVMContext &VMCtx, DescSet *D) {
 	return MDString::get(VMCtx, s);
 }
 
-bool KINTTaintPass::doFinalization(Module &M) {
-	LLVMContext &VMCtx = M.getContext();
-	for (Module::iterator f = M.begin(), fe = M.end(); f != fe; ++f) {
-		Function &F = *f;
-		for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
-			Instruction &I = *i;
-			if (DescSet *DS = getTaint(&I)) {
-				MDNode *MD = MDNode::get(VMCtx, toMDString(VMCtx, DS));
-				I.setMetadata(MD_Taint, MD);
-			} else
-				I.setMetadata(MD_Taint, NULL);
-		}
-	}
-	return true;
-}
-
-bool KINTTaintPass::runOnModule(Module& M) {
-	TM.GTS.clear();
-	TM.VTS.clear();
-
-	this->CalleesPtr = &getAnalysis<KINTCallGraphPass>().getCalleeMap();
-
-	bool changed = true, ret = false;
-
-	while (changed) {
-		changed = false;
-		for (Module::iterator i = M.begin(), e = M.end(); i != e; ++i)
-			changed |= runOnFunction(*i);
-		ret |= changed;
-	}
-	return ret;
-}
-
-DescSet* KINTTaintPass::getTaint(llvm::Value *V) {
+// Check both local taint and global sources
+DescSet* KINTTaintPass::getTaint(Value *V) {
 	if (DescSet *DS = TM.get(V))
 		return DS;
 	if (DescSet *DS = TM.get(V->stripPointerCasts()))
@@ -88,7 +56,30 @@ DescSet* KINTTaintPass::getTaint(llvm::Value *V) {
 	return TM.get(V);
 }
 
-bool KINTTaintPass::runOnFunction(Function& F) {
+// find and mark taint source
+bool KINTTaintPass::checkTaintSource(Instruction *I)
+{
+	Module *M = I->getParent()->getParent()->getParent();
+	bool changed = false;
+
+	if (MDNode *MD = I->getMetadata(MD_TaintSrc)) {
+		TM.add(I, asString(MD));
+		DescSet &D = *TM.get(I);
+		changed |= TM.add(getValueId(I), D, true);
+		// mark all struct members as taint
+		if (PointerType *PTy = dyn_cast<PointerType>(I->getType())) {
+			if (StructType *STy = dyn_cast<StructType>(PTy->getElementType())) {
+				for (unsigned i = 0; i < STy->getNumElements(); ++i)
+					changed |= TM.add(getStructId(STy, M, i), D, true);
+			}
+		}
+	}
+	return changed;
+}
+
+// Propagate taint within a function
+bool KINTTaintPass::runOnFunction(Function& F)
+{
 	bool changed = false;
 
 	for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
@@ -140,25 +131,38 @@ bool KINTTaintPass::runOnFunction(Function& F) {
 	return changed;
 }
 
-// find and mark taint source
-bool KINTTaintPass::checkTaintSource(Instruction *I)
-{
-	Module *M = I->getParent()->getParent()->getParent();
-	bool changed = false;
-
-	if (MDNode *MD = I->getMetadata(MD_TaintSrc)) {
-		TM.add(I, asString(MD));
-		DescSet &D = *TM.get(I);
-		changed |= TM.add(getValueId(I), D, true);
-		// mark all struct members as taint
-		if (PointerType *PTy = dyn_cast<PointerType>(I->getType())) {
-			if (StructType *STy = dyn_cast<StructType>(PTy->getElementType())) {
-				for (unsigned i = 0; i < STy->getNumElements(); ++i)
-					changed |= TM.add(getStructId(STy, M, i), D, true);
-			}
+// write back
+bool KINTTaintPass::doFinalization(Module &M) {
+	LLVMContext &VMCtx = M.getContext();
+	for (Module::iterator f = M.begin(), fe = M.end(); f != fe; ++f) {
+		Function &F = *f;
+		for (inst_iterator i = inst_begin(F), e = inst_end(F); i != e; ++i) {
+			Instruction &I = *i;
+			if (DescSet *DS = getTaint(&I)) {
+				MDNode *MD = MDNode::get(VMCtx, toMDString(VMCtx, DS));
+				I.setMetadata(MD_Taint, MD);
+			} else
+				I.setMetadata(MD_Taint, NULL);
 		}
 	}
-	return changed;
+	return true;
+}
+
+bool KINTTaintPass::runOnModule(Module& M) {
+	TM.GTS.clear();
+	TM.VTS.clear();
+
+	this->CalleesPtr = &getAnalysis<KINTCallGraphPass>().getCalleeMap();
+
+	bool changed = true, ret = false;
+
+	while (changed) {
+		changed = false;
+		for (Module::iterator i = M.begin(), e = M.end(); i != e; ++i)
+			changed |= runOnFunction(*i);
+		ret |= changed;
+	}
+	return ret;
 }
 
 char KINTTaintPass::ID;
