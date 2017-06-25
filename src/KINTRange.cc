@@ -9,6 +9,7 @@
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/CFG.h>
+#include <llvm/Analysis/MemoryDependenceAnalysis.h>
 #include <llvm/Analysis/MemoryLocation.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Module.h>
@@ -59,7 +60,7 @@ private:
 	const CalleeMap* CalleesPtr;
 	const TaintMap*  TMPtr;
 	const llvm::TargetLibraryInfo* TLIPtr;
-	const llvm::AAResults* AARPtr;
+	llvm::AAResults* AARPtr;
 
 	bool safeUnion(CRange &CR, const CRange &R);
 	bool unionRange(const llvm::MemoryLocation&, const CRange &, llvm::Value *);
@@ -353,8 +354,29 @@ CRange KINTRangePass::visitPHINode(PHINode *PHI)
 	return CR;
 }
 
+// Load and union Ranges from all possible aliased memory locations
 CRange KINTRangePass::visitLoadInst(llvm::LoadInst *LI) {
-	// TODO Read from IntRange
+	IntegerType *Ty = dyn_cast<IntegerType>(LI->getType());
+	assert(Ty != nullptr);
+	// FIXME This algorithm sucks. We need a more efficient one to get
+	// aliased memory locations.
+	for(LocRangeMap::iterator it = IntRanges.begin();
+			it!=IntRanges.end(); ++it)
+	{
+		ModRefInfo MRI = AARPtr->getModRefInfo(LI, it->first);
+		switch(MRI)
+		{
+			case MRI_Ref:
+				unionRange(LI->getParent(), LI, it->second);
+				break;
+			case MRI_Mod:
+			case MRI_ModRef:
+				llvm_unreachable("Load Instruction shouldn't modify memory");
+				break;
+			default:
+				break;
+		}
+	}
 	return getRange(LI->getParent(), LI);
 }
 
@@ -383,6 +405,7 @@ bool KINTRangePass::visitCallInst(CallInst *CI)
 			changed |= unionRange(L, getRange(CI->getParent(), V), CI);
 		}
 	}
+
 	// range for the return value of this call site
 	if (CI->getType()->isIntegerTy())
 		changed |= unionRange(getLocation(CI), getRange(CI->getParent(), CI), CI);
@@ -396,6 +419,8 @@ bool KINTRangePass::visitStoreInst(StoreInst *SI)
 	if (V->getType()->isIntegerTy() && sID != "") {
 		CRange CR = getRange(SI->getParent(), V);
 		unionRange(SI->getParent(), SI->getPointerOperand(), CR);
+		// TODO Store can possibly modify multiple memory locations
+		// due to aliases
 		return unionRange(MemoryLocation::get(SI), CR, SI);
 	}
 	return false;
