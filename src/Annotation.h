@@ -32,7 +32,7 @@ static inline bool isFunctionPointer(llvm::Type *Ty) {
 	return PTy && PTy->getElementType()->isFunctionTy();
 }
 
-static inline std::string getScopeName(llvm::GlobalValue *GV) {
+static inline std::string getScopeName(const llvm::GlobalValue *GV) {
 	if (llvm::GlobalValue::isExternalLinkage(GV->getLinkage()))
 		return GV->getName();
 	else {
@@ -53,7 +53,7 @@ static inline std::string getScopeName(llvm::StructType *Ty, llvm::Module *M) {
 	return Ty->getStructName().str();
 }
 
-static inline llvm::StringRef getLoadStoreId(llvm::Instruction *I) {
+static inline llvm::StringRef getLoadStoreId(const llvm::Instruction *I) {
 	if (llvm::MDNode *MD = I->getMetadata(MD_ID))
 		return llvm::dyn_cast<llvm::MDString>(MD->getOperand(0))->getString();
 	return llvm::StringRef();
@@ -67,11 +67,11 @@ getStructId(llvm::Type *Ty, llvm::Module *M, unsigned offset) {
 	return getScopeName(STy, M) + "." + llvm::Twine(offset).str();
 }
 
-static inline std::string getVarId(llvm::GlobalValue *GV) {
+static inline std::string getVarId(const llvm::GlobalValue *GV) {
 	return "var." + getScopeName(GV);
 }
 
-static inline std::string getArgId(llvm::Argument *A) {
+static inline std::string getArgId(const llvm::Argument *A) {
 	return "arg." + getScopeName(A->getParent()) + "."
 			+ llvm::Twine(A->getArgNo()).str();
 }
@@ -84,8 +84,8 @@ static inline std::string getRetId(llvm::Function *F) {
 	return "ret." + getScopeName(F);
 }
 
-static inline std::string getValueId(llvm::Value *V);
-static inline std::string getRetId(llvm::CallInst *CI) {
+static inline std::string getValueId(const llvm::Value *V);
+static inline std::string getRetId(const llvm::CallInst *CI) {
 	if (llvm::Function *CF = CI->getCalledFunction())
 		return getRetId(CF);
 	else {
@@ -96,16 +96,18 @@ static inline std::string getRetId(llvm::CallInst *CI) {
 	return "";
 }
 
-static inline std::string getValueId(llvm::Value *V) {
-	if (llvm::Argument *A = llvm::dyn_cast<llvm::Argument>(V))
+static inline std::string getValueId(const llvm::Value *V) {
+	if(const llvm::GlobalValue *GV = llvm::dyn_cast<const llvm::GlobalValue>(V))
+		return getVarId(GV);
+	else if (const llvm::Argument *A = llvm::dyn_cast<const llvm::Argument>(V))
 		return getArgId(A);
-	else if (llvm::CallInst *CI = llvm::dyn_cast<llvm::CallInst>(V)) {
+	else if (const llvm::CallInst *CI = llvm::dyn_cast<const llvm::CallInst>(V)) {
 		if (llvm::Function *F = CI->getCalledFunction())
 			if (F->getName().startswith("kint_arg.i"))
 				return getLoadStoreId(CI);
 		return getRetId(CI);
 	} else if (llvm::isa<llvm::LoadInst>(V) || llvm::isa<llvm::StoreInst>(V))
-		return getLoadStoreId(llvm::dyn_cast<llvm::Instruction>(V));
+		return getLoadStoreId(llvm::dyn_cast<const llvm::Instruction>(V));
 	return "";
 }
 

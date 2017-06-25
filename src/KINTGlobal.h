@@ -25,7 +25,6 @@ typedef std::map<llvm::StringRef, llvm::Function *> FuncMap;
 typedef std::map<std::string, FuncSet> FuncPtrMap;
 typedef llvm::DenseMap<llvm::CallInst *, FuncSet> CalleeMap;
 typedef std::set<llvm::StringRef> DescSet;
-typedef std::map<std::string, CRange> RangeMap;
 
 class TaintMap {
 

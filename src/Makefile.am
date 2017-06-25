@@ -33,7 +33,7 @@ libcmpck_la_LIBADD  = libsat.la
 libcmpck_la_LDFLAGS = -module
 
 libintglobal_la_SOURCES = Annotation.cc KINTCallGraph.cc KINTTaint.cc KINTRange.cc
-#libintglobal_la_LDFLAGS = -module
+libintglobal_la_LDFLAGS = `llvm-config --ldflags` `llvm-config --libs analysis irreader` `llvm-config --system-libs analysis irreader`
 
 intglobal_LDFLAGS = -all-static `llvm-config --ldflags` `llvm-config --libs analysis irreader` `llvm-config --system-libs analysis irreader`
 intglobal_LDADD  = libintglobal.la

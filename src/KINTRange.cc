@@ -3,12 +3,17 @@
 /// \file
 /// This pass performs Value Range analysis
 ///
+/// todo Rewrite KINTRangePass with InstVisitor to dynamic dispatch
 //===----------------------------------------------------------------------===//
 
+#include <llvm/ADT/DenseSet.h>
+#include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/CFG.h>
+#include <llvm/Analysis/MemoryLocation.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Pass.h>
+#include <llvm/PassAnalysisSupport.h>
 
 #include "Annotation.h"
 #include "KINTGlobal.h"
@@ -19,6 +24,33 @@ static cl::opt<std::string>
 WatchID("w", cl::desc("Watch sID"), 
 			   cl::value_desc("sID"));
 
+static llvm::MemoryLocation getLocation(const llvm::Value* V) {
+	if (const llvm::GlobalObject *GV = dyn_cast<const llvm::GlobalObject>(V))
+		return getLocation(GV);
+	else if (const llvm::CallInst *CI = dyn_cast<const llvm::CallInst>(V))
+		return getLocation(CI);
+	else if (const llvm::Instruction *I = dyn_cast<const llvm::Instruction>(V))
+		return MemoryLocation::get(I);
+	llvm_unreachable("Value does not represent a memory location.");
+	return MemoryLocation(V);
+}
+
+static llvm::MemoryLocation getLocation(const llvm::GlobalObject *GV) {
+	// Create MemoryLocation for the given GlobalVariable or Function Summary
+	// XXX need to know if MemoryLoction created is consistent to store/load instruction.
+	AAMDNodes N;
+	N.TBAA  =   GV->getMetadata(LLVMContext::MD_tbaa);
+	N.Scope =   GV->getMetadata(LLVMContext::MD_alias_scope);
+	N.NoAlias = GV->getMetadata(LLVMContext::MD_noalias);
+	const auto& DL = GV->getParent()->getDataLayout();
+	return MemoryLocation(GV, DL.getTypeStoreSize(GV->getValueType()), N);
+}
+
+/// Return the memory location representing the summary of the called functions
+static llvm::MemoryLocation getLocation(const llvm::CallInst *CI) {
+	return getLocation(CI->getCalledFunction());
+}
+
 namespace {
 
 class KINTRangePass : public llvm::ModulePass {
@@ -26,9 +58,11 @@ private:
 	const unsigned MaxIterations;
 	const CalleeMap* CalleesPtr;
 	const TaintMap*  TMPtr;
+	const llvm::TargetLibraryInfo* TLIPtr;
+	const llvm::AAResults* AARPtr;
 
 	bool safeUnion(CRange &CR, const CRange &R);
-	bool unionRange(llvm::StringRef, const CRange &, llvm::Value *);
+	bool unionRange(const llvm::MemoryLocation&, const CRange &, llvm::Value *);
 	bool unionRange(llvm::BasicBlock *, llvm::Value *, const CRange &);
 	CRange getRange(llvm::BasicBlock *, llvm::Value *);
 
@@ -41,7 +75,7 @@ private:
 	typedef std::map<llvm::BasicBlock *, ValueRangeMap> FuncValueRangeMaps;
 	FuncValueRangeMaps FuncVRMs;
 
-	typedef std::set<std::string> ChangeSet;
+	typedef llvm::DenseSet<llvm::MemoryLocation> ChangeSet;
 	ChangeSet Changes;
 
 	typedef std::pair<const llvm::BasicBlock *, const llvm::BasicBlock *> Edge;
@@ -49,7 +83,8 @@ private:
 	EdgeList BackEdges;
 
 	// Ranges
-	RangeMap IntRanges;
+	typedef llvm::DenseMap<llvm::MemoryLocation, CRange> LocRangeMap;
+	LocRangeMap IntRanges;
 
 	bool isBackEdge(const Edge &);
 
@@ -57,6 +92,7 @@ private:
 	CRange visitCastInst(llvm::CastInst *);
 	CRange visitSelectInst(llvm::SelectInst *);
 	CRange visitPHINode(llvm::PHINode *);
+	CRange visitLoadInst(llvm::LoadInst *);
 
 	bool visitCallInst(llvm::CallInst *);
 	bool visitReturnInst(llvm::ReturnInst *);
@@ -73,12 +109,14 @@ public:
 	static char ID;
 
 	KINTRangePass(): llvm::ModulePass(ID), MaxIterations(5),
-			CalleesPtr(nullptr), TMPtr(nullptr) {}
+			CalleesPtr(nullptr), TMPtr(nullptr), TLIPtr(nullptr), AARPtr(nullptr) {}
 
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& AU) const {
 		AU.setPreservesCFG();
 		AU.addRequired<KINTCallGraphPass>();
 		AU.addRequired<KINTTaintPass>();
+		AU.addRequired<TargetLibraryInfoWrapperPass>();
+		AU.addRequired<AAResultsWrapperPass>();
 	}
 
 	virtual bool doInitialization(llvm::Module&);
@@ -88,12 +126,12 @@ public:
 
 }
 
-bool KINTRangePass::unionRange(StringRef sID, const CRange &R,
+bool KINTRangePass::unionRange(const MemoryLocation& L, const CRange &R,
 						   Value *V = NULL)
 {
 	if (R.isEmptySet())
 		return false;
-	
+	const StringRef& sID = getValueId(L.Ptr);
 	if (WatchID == sID && V) {
 		if (Instruction *I = dyn_cast<Instruction>(V))
 			dbgs() << I->getParent()->getParent()->getName() << "(): ";
@@ -102,18 +140,18 @@ bool KINTRangePass::unionRange(StringRef sID, const CRange &R,
 	}
 	
 	bool changed = true;
-	RangeMap::iterator it = this->IntRanges.find(sID);
+	LocRangeMap::iterator it = this->IntRanges.find(L);
 	if (it != this->IntRanges.end()) {
 		changed = it->second.safeUnion(R);
 		if (changed && sID == WatchID)
 			dbgs() << sID << " + " << R << " = " << it->second << "\n";
 	} else {
-		this->IntRanges.insert(std::make_pair(sID, R));
+		this->IntRanges.insert(std::make_pair(L, R));
 		if (sID == WatchID)
 			dbgs() << sID << " = " << R << "\n";
 	}
 	if (changed)
-		Changes.insert(sID);
+		Changes.insert(L);
 	return changed;
 }
 
@@ -155,7 +193,7 @@ CRange KINTRangePass::getRange(BasicBlock *BB, Value *V)
 	CRange CR(Ty->getBitWidth(), false);
 	CRange Fullset(Ty->getBitWidth(), true);
 	
-	RangeMap &IRM = this->IntRanges;
+	LocRangeMap &IRM = this->IntRanges;
 
 	if (CallInst *CI = dyn_cast<CallInst>(V)) {
 		// calculate union of values ranges returned by all possible callees
@@ -168,8 +206,8 @@ CRange KINTRangePass::getRange(BasicBlock *BB, Value *V)
 					CR = Fullset;
 					break;
 				}
-				RangeMap::iterator it;
-				if ((it = IRM.find(sID)) != IRM.end())
+				LocRangeMap::iterator it;
+				if ((it = IRM.find(getLocation(*i))) != IRM.end())
 					CR.safeUnion(it->second);
 			}
 		}
@@ -177,10 +215,10 @@ CRange KINTRangePass::getRange(BasicBlock *BB, Value *V)
 		// arguments & loads
 		std::string sID = getValueId(V);
 		if (sID != "") {
-			RangeMap::iterator it;
+			LocRangeMap::iterator it;
 			if (this->TMPtr->isSource(sID))
 				CR = Fullset;
-			else if ((it = IRM.find(sID)) != IRM.end())
+			else if ((it = IRM.find(getLocation(V))) != IRM.end())
 				CR = it->second;
 		}
 		// might load part of a struct field
@@ -195,7 +233,7 @@ void KINTRangePass::collectInitializers(GlobalVariable *GV, Constant *I)
 {	
 	// global var
 	if (ConstantInt *CI = dyn_cast<ConstantInt>(I)) {
-		unionRange(getVarId(GV), CI->getValue(), GV);
+		unionRange(getLocation(GV), CI->getValue(), GV);
 	}
 	
 	// structs
@@ -214,11 +252,14 @@ void KINTRangePass::collectInitializers(GlobalVariable *GV, Constant *I)
 				// TODO: handle nested arrays
 				collectInitializers(GV, CS->getOperand(i));
 			} else if (Ty->isIntegerTy()) {
+				// TODO Cannot handle global struct with constant member for now
+#if 0
 				ConstantInt *CI = 
 					dyn_cast<ConstantInt>(I->getOperand(i));
 				StringRef sID = getStructId(ST, GV->getParent(), i);
 				if (!sID.empty() && CI)
 					unionRange(sID, CI->getValue(), GV);
+#endif
 			}
 		}
 	}
@@ -256,6 +297,7 @@ CRange KINTRangePass::visitBinaryOp(BinaryOperator *BO)
 	R.match(L);
 	switch (BO->getOpcode()) {
 		default: BO->dump(); llvm_unreachable("Unknown binary operator!");
+			return CRange(L.getBitWidth(), true); // return full set
 		case Instruction::Add:  return L.add(R);
 		case Instruction::Sub:  return L.sub(R);
 		case Instruction::Mul:  return L.multiply(R);
@@ -311,6 +353,11 @@ CRange KINTRangePass::visitPHINode(PHINode *PHI)
 	return CR;
 }
 
+CRange KINTRangePass::visitLoadInst(llvm::LoadInst *LI) {
+	// TODO Read from IntRange
+	return getRange(LI->getParent(), LI);
+}
+
 bool KINTRangePass::visitCallInst(CallInst *CI)
 {
 	bool changed = false;
@@ -330,13 +377,15 @@ bool KINTRangePass::visitCallInst(CallInst *CI)
 			// skip non-integer arguments
 			if (!V->getType()->isIntegerTy())
 				continue;
-			std::string sID = getArgId(*i, j);
-			changed |= unionRange(sID, getRange(CI->getParent(), V), CI);
+			// XXX std::string sID = getArgId(*i, j);
+			MemoryLocation L
+				= MemoryLocation::getForArgument(ImmutableCallSite(CI), j, *TLIPtr);
+			changed |= unionRange(L, getRange(CI->getParent(), V), CI);
 		}
 	}
 	// range for the return value of this call site
 	if (CI->getType()->isIntegerTy())
-		changed |= unionRange(getRetId(CI), getRange(CI->getParent(), CI), CI);
+		changed |= unionRange(getLocation(CI), getRange(CI->getParent(), CI), CI);
 	return changed;
 }
 
@@ -347,7 +396,7 @@ bool KINTRangePass::visitStoreInst(StoreInst *SI)
 	if (V->getType()->isIntegerTy() && sID != "") {
 		CRange CR = getRange(SI->getParent(), V);
 		unionRange(SI->getParent(), SI->getPointerOperand(), CR);
-		return unionRange(sID, CR, SI);
+		return unionRange(MemoryLocation::get(SI), CR, SI);
 	}
 	return false;
 }
@@ -358,8 +407,8 @@ bool KINTRangePass::visitReturnInst(ReturnInst *RI)
 	if (!V || !V->getType()->isIntegerTy())
 		return false;
 	
-	std::string sID = getRetId(RI->getParent()->getParent());
-	return unionRange(sID, getRange(RI->getParent(), V), RI);
+	//std::string sID = getRetId(RI->getParent()->getParent());
+	return unionRange(getLocation(RI->getFunction()), getRange(RI->getParent(), V), RI);
 }
 
 bool KINTRangePass::updateRangeFor(Instruction *I)
@@ -389,9 +438,7 @@ bool KINTRangePass::updateRangeFor(Instruction *I)
 	} else if (PHINode *PHI = dyn_cast<PHINode>(I)) {
 		CR = visitPHINode(PHI);
 	} else if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
-		// TODO getRange does not even track if 'load'
-		// instruction is loading the same location
-		CR = getRange(LI->getParent(), LI);
+		CR = visitLoadInst(LI);
 	} else if (CallInst *CI = dyn_cast<CallInst>(I)) {
 		CR = getRange(CI->getParent(), CI);
 	}
@@ -484,7 +531,7 @@ void KINTRangePass::visitTerminator(TerminatorInst *I, BasicBlock *BB,
 	else if (isa<ResumeInst>(I))
 		llvm_unreachable("'resume' shouldn't have any successor.");
 	else if (isa<UnreachableInst>(I))
-		; // Ignore unreachable instruction
+		return; // Ignore unreachable instruction
 	else {
 		// XXX What about other kinds of terminator instructions? (LLVM 3.9)
 		//   indirectbr (IndirectBrInst)
@@ -538,6 +585,10 @@ bool KINTRangePass::updateRangeFor(BasicBlock *BB) {
 }
 
 bool KINTRangePass::updateRangeFor(Function &F) {
+	// Get Alias Analysis result for current function
+	// since AAResultsWrapperPass is a FunctionPass
+	this->AARPtr = &getAnalysis<AAResultsWrapperPass>(F).getAAResults();
+
 	bool changed = false;
 
 	FuncVRMs.clear();
@@ -547,12 +598,14 @@ bool KINTRangePass::updateRangeFor(Function &F) {
 	for (Function::iterator b = F.begin(), be = F.end(); b != be; ++b)
 		changed |= updateRangeFor(&*b);
 
+	this->AARPtr = nullptr; //Reset Alias Analysis result
 	return changed;
 }
 
 bool KINTRangePass::runOnModule(Module& M) {
 	this->CalleesPtr = &getAnalysis<KINTCallGraphPass>().getCalleeMap();
 	this->TMPtr = &getAnalysis<KINTTaintPass>().getTaintMap();
+	this->TLIPtr = &getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
 
 	unsigned itr = 0;
 	bool changed = true, ret = false;
@@ -562,7 +615,7 @@ bool KINTRangePass::runOnModule(Module& M) {
 		if (++itr > MaxIterations) {
 			for (ChangeSet::iterator it = Changes.begin(), ie = Changes.end();
 				 it != ie; ++it) {
-				RangeMap::iterator i = this->IntRanges.find(*it);
+				LocRangeMap::iterator i = this->IntRanges.find(*it);
 				i->second = CRange(i->second.getBitWidth(), true);
 			}
 		}
@@ -573,6 +626,8 @@ bool KINTRangePass::runOnModule(Module& M) {
 				changed |= updateRangeFor(*i);
 		ret |= changed;
 	}
+
+	this->CalleesPtr = nullptr; this->TMPtr = nullptr;
 	return ret;
 }
 
@@ -588,8 +643,8 @@ bool KINTRangePass::doFinalization(Module& M) {
 			std::string id = getValueId(&I);
 			if (id == "")
 				continue;
-			RangeMap &IRM = this->IntRanges;
-			RangeMap::iterator it = IRM.find(id);
+			LocRangeMap &IRM = this->IntRanges;
+			LocRangeMap::iterator it = IRM.find(getLocation(&I));
 			if (it == IRM.end())
 				continue;
 			CRange &R = it->second;
