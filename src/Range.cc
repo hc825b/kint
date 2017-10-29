@@ -204,6 +204,7 @@ CRange RangePass::visitBinaryOp(BinaryOperator *BO)
 	R.match(L);
 	switch (BO->getOpcode()) {
 		default: BO->dump(); llvm_unreachable("Unknown binary operator!");
+			break;
 		case Instruction::Add:  return L.add(R);
 		case Instruction::Sub:  return L.sub(R);
 		case Instruction::Mul:  return L.multiply(R);
@@ -338,8 +339,6 @@ bool RangePass::updateRangeFor(Instruction *I)
 	} else if (PHINode *PHI = dyn_cast<PHINode>(I)) {
 		CR = visitPHINode(PHI);
 	} else if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
-		// TODO getRange does not even track if 'load'
-		// instruction is loading the same location
 		CR = getRange(LI->getParent(), LI);
 	} else if (CallInst *CI = dyn_cast<CallInst>(I)) {
 		CR = getRange(CI->getParent(), CI);
