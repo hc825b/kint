@@ -32,6 +32,7 @@ AC_CONFIG_LINKS([
 	bin/kint-gcc:test/kint-gcc
 	bin/kint-g++:test/kint-g++
 	bin/kint-build:test/kint-build
+	bin/diagdiff:test/diagdiff
 	bin/ncpu:src/ncpu
 	bin/intck:src/intck
 	bin/cmpck:src/cmpck
